@@ -17,4 +17,6 @@ If this magnificent window shows up, you succeeded!
 
 <img width="500" alt="capture d ecran 2018-12-16 a 21 57 08" src="https://user-images.githubusercontent.com/34477292/50058815-2339ac00-017e-11e9-90a4-c6d3512218b5.png">
 
-Note that this app takes in a mono .wav file and outputs a stereo .wav file.
+You can either load a mono .wav from the browser, or record yourself for a settable duration. You can play and save the output signal as a stereo .wav file.
+
+Have fun!
