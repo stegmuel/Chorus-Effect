@@ -1,5 +1,3 @@
-import pyaudio
-import time
 import numpy as np
 import scipy as sp
 import sounddevice as sd
@@ -10,9 +8,11 @@ def play(signal, fs):
 def stop():
 	sd.stop()
 
-def recAndPlay(self):
+def record(self):
+	'''
+	Record an input with a sampling frequency of 8000 which lowpass the signal. 
+	'''
 	fs = 8000
-	print(self.recLength.get())
 	duration = int(self.recLength.get())+0.75  # seconds
 	myrecording = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16')
 	sd.wait()
@@ -72,7 +72,7 @@ def time_stretch(signal,alpha):
 
 def time_varying_pitch(signal, fs, intensity, rate):
     '''
-    Apply a time varying pitch on signal. 
+    Applies a time varying pitch on signal. 
     Pitch is modulated by a sinusoidal of rate and intensity defined by user.
     '''
     
@@ -122,20 +122,18 @@ def time_varying_pitch(signal, fs, intensity, rate):
     time_stretch_resample = np.append(signal[0:safety-delay],time_stretch_resample)
     return time_stretch_resample
     
-def chorus_effect(signal, fs, intensity1, intensity2, rate1, rate2, wet):
-
-	chorus_signal_1 = time_varying_pitch(signal, fs, intensity1, rate1)
-	chorus_signal_2 = time_varying_pitch(signal, fs, intensity2, rate2)
-
-	chorus = float(0.5)*wet*chorus_signal_1[0:min(len(chorus_signal_1), len(signal))] + float(0.5)*wet*chorus_signal_2[0:min(len(chorus_signal_2), len(signal))] + (1-wet)*signal[0:min(len(chorus_signal_1), len(signal))]
-
-	return chorus
 
 def robot_voice(signal, f, fs):
+    '''
+    Applies a "robot effect" on signal. A classic!
+    '''
     w = (float(f) / fs) * 2 * np.pi  # normalized modulation frequency
     return 2 * np.multiply(signal, np.cos(w * np.arange(0,len(signal))))
 
 def alien_voice(signal, fshift, fs):
+    '''
+    Applies an "alien effect" on signal. A must-try!
+    '''
     shift = int(fshift/fs*len(signal));
     signal_fft = np.fft.rfft(signal);
     signal_fft_rolled = np.roll(signal_fft, shift);
@@ -143,19 +141,22 @@ def alien_voice(signal, fshift, fs):
     signal_pitched = np.fft.irfft(signal_fft_rolled)
     
     return signal_pitched
-    
+
 def chorusAux(signal, fs, intensity1, intensity2, rate1, rate2, wet, pan1, pan2):
-	chorus_signal_1 = time_varying_pitch(signal, fs, intensity1, rate1)
-	chorus_signal_2 = time_varying_pitch(signal, fs, intensity2, rate2)
+        '''
+        Applies a stereo chorus on the input signal with given parameters
+        '''
+        chorus_signal_1 = time_varying_pitch(signal, fs, intensity1, rate1)
+        chorus_signal_2 = time_varying_pitch(signal, fs, intensity2, rate2)
 
-	scale_right1 = (10+pan1)/20
-	scale_left1 = 1-scale_right1
-	scale_right2 = (10+pan2)/20
-	scale_left2 = 1-scale_right2
+        scale_right1 = (10+pan1)/20
+        scale_left1 = 1-scale_right1
+        scale_right2 = (10+pan2)/20
+        scale_left2 = 1-scale_right2
 
-	signal_left = wet/2*scale_left1*chorus_signal_1[0:min(len(chorus_signal_1), len(signal))] + wet/2*scale_left2*chorus_signal_2[0:min(len(chorus_signal_1), len(signal))] +(1-wet)*signal[0:min(len(chorus_signal_1), len(signal))]
-	signal_right = wet/2*scale_right1*chorus_signal_1[0:min(len(chorus_signal_1), len(signal))] + wet/2*scale_right2*chorus_signal_2[0:min(len(chorus_signal_1), len(signal))] +(1-wet)*signal[0:min(len(chorus_signal_1), len(signal))]
+        signal_left = wet/2*scale_left1*chorus_signal_1[0:min(len(chorus_signal_1), len(signal))] + wet/2*scale_left2*chorus_signal_2[0:min(len(chorus_signal_1), len(signal))] +(1-wet)*signal[0:min(len(chorus_signal_1), len(signal))]
+        signal_right = wet/2*scale_right1*chorus_signal_1[0:min(len(chorus_signal_1), len(signal))] + wet/2*scale_right2*chorus_signal_2[0:min(len(chorus_signal_1), len(signal))] +(1-wet)*signal[0:min(len(chorus_signal_1), len(signal))]
 
-	chorus = np.column_stack((signal_left, signal_right))
-	return chorus
+        chorus = np.column_stack((signal_left, signal_right))
+        return chorus
 
