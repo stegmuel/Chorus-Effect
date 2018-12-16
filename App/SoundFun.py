@@ -5,9 +5,6 @@ import scipy as sp
 import sounddevice as sd
 
 def play(signal, fs):
-	#fade_in = np.linspace(0,1,256)
-	#signal[0:256] = signal[0:256]*fade_in
-	#print(signal)
         sd.play(signal, fs)
 
 def stop():
@@ -19,183 +16,112 @@ def recAndPlay(self):
 	duration = int(self.recLength.get())+0.75  # seconds
 	myrecording = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16')
 	sd.wait()
-
-	#test = np.transpose(myrecording)
-	
-	#out = chorus_effect(test[0,], fs, float(self.int1_s.get()), float(self.int2_s.get()), float(self.rate1_s.get()), float(self.rate2_s.get()), float(self.wet_s.get()))
-	
-	#fade_in = np.linspace(0,1,128)
-	#out = np.transpose(out)
-	#out[0:128] = out[0:128]*fade_in
-
-	#sd.play(out, fs)
-	#play(np.transpose(out),fs)
 	return (np.transpose(myrecording)[0,6000:], fs)
 
-def playData(samples):
-	p=pyaudio.PyAudio() 
-	stream = p.open(format=pyaudio.paFloat32,
-                		 channels=1,
-                         rate=8000,
-                         output=True,
-                         output_device_index=1
-                         )
-	# Assuming you have a numpy array called samples
-	data = samples.astype(np.float32).tostring()
-	stream.write(data)
-
-def play_audio2(wf):
-	##wf = wave.open('singing_8000.wav', 'rb')
-
-	# instantiate PyAudio (1)
-	p = pyaudio.PyAudio()
-
-	# define callback (2)
-	def callback(in_data, frame_count, time_info, status):
-	    data = wf.readframes(frame_count)
-	    return (data, pyaudio.paContinue)
-
-	# open stream using callback (3)
-	stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
-		        channels=wf.getnchannels(),
-		        rate=wf.getframerate(),
-		        output=True,
-		        stream_callback=callback)
-
-	# start the stream (4)
-	stream.start_stream()
-
-	# wait for stream to finish (5)
-	while stream.is_active():
-	    time.sleep(0.1)
-
-	# stop stream (6)
-	stream.stop_stream()
-	stream.close()
-	wf.close()
-
-	# close PyAudio (7)
-	p.terminate()
-
 def time_stretch(signal,alpha):
-	epsilon = 1e-9;
-	N=int(2**7) 
-	M=int(2**7)
-	Rs= int(2**7/8)
-	w=np.hanning(2**7)
-	Ra = int(Rs / float(alpha))
+    '''
+    Time stretch signal by a factor alpha. 
+    Output will have length alpha times length of the signal.
+    '''
+    N = int(2**7) 								#frame size
+    Hs= int(2**7/8) 								#Synthesis hopsize
+    Ha = int(Hs / float(alpha)) 						#Analysis hopsize
+    w = np.hanning(2**7) 							#Hanning window
+    wscale = sum([i**2 for i in w]) / float(Hs)					#Scaling factor
+    L0 = signal.size								#original signal size
+    L1 = int(signal.size*alpha)							#output signal size
+    
+    # Initialization
+    signal = np.append(np.zeros(int(len(w))), signal)
+    
+    time_stretch_signal = np.zeros(int((signal.size)*alpha + signal.size/Ha * alpha))
+    idx_synthesis = 0
+    idx_analysis = 0
+    i = 0
+    
+    # Loop over frames
+    while idx_synthesis <= signal.size - (Hs+N):
+        i += 1
+        # Get Fourier transform of two consecutive windowed frames    
+        X = np.fft.fft(w*signal[idx_synthesis:idx_synthesis+N])
+        Xnew = np.fft.fft(w*signal[idx_synthesis+Hs:idx_synthesis+Hs+N])
 
-	hM1 = int(np.floor((M-1)/2.))
-	hM2 = int(np.floor(M/2.))
+        if idx_synthesis == 0:
+            # First frame is not modified
+            Xmod_new = Xnew 
 
-	wscale = sum([i**2 for i in w]) / float(Rs)
-	L = signal.size
-	L0 = int(signal.size*alpha)
+        else:
+            # Adapt phase to avoid phase jumps. Xmod contains the modified spectrum of previous frame and 
+            # Xmod_new contains the spectrum of the frame we are modifying.
+            phi =  np.angle(Xmod) + np.angle(Xnew) - np.angle(X)
+            Xmod_new = abs(Xnew) * np.exp(1j*phi)
 
+        #Update parameters
+        Xmod = Xmod_new
+        time_stretch_signal[idx_analysis:idx_analysis+N] = np.add(time_stretch_signal[idx_analysis:idx_analysis+N], np.real(w*np.fft.ifft(Xmod_new)), out=time_stretch_signal[idx_analysis:idx_analysis+N], casting="unsafe")
+        idx_synthesis = int(idx_synthesis+Ha)					# analysis hop
+        idx_analysis += Hs							# synthesis hop
 
-	A = np.fft.fft(w*signal[0:N])
-	B = np.fft.fft(w*signal[Ra:Ra+N])
-	Freq0 = B/A * abs(B/A)
-	Freq0[Freq0 == 0] = epsilon
+    #Scale and remove tails
+    time_stretch_signal = time_stretch_signal / wscale 
+    time_stretch_signal = np.delete(time_stretch_signal, range(Hs))
+    time_stretch_signal = np.delete(time_stretch_signal, range(L1, time_stretch_signal.size))
 
-	signal = np.append(np.zeros(int(len(w))), signal)
-	#signal = np.append(signal,np.zeros(int(len(w))))
+    return time_stretch_signal
 
-	time_stretch_signal = np.zeros(int((signal.size)*alpha + signal.size/Ra * alpha))
-	#time_stretch_signal = np.zeros(int((signal.size)*alpha))
-
-	p, pp = 0, 0
-	pend = signal.size - (Rs+N)
-	Yold = epsilon
-
-	i = 0
-	while p <= pend:
-		i += 1
-		# Spectra of two consecutive windows    
-		a = w*signal[p+Rs:p+Rs+N]
-		Xs = np.fft.fft(w*signal[p:p+N])
-		Xt = np.fft.fft(w*signal[p+Rs:p+Rs+N])
-
-		# Prohibit dividing by zero
-		Xs[Xs == 0] = epsilon
-		Xt[Xt == 0] = epsilon
-
-		# inverse FFT and overlap-add
-		if p > 0 :
-			Y = Xt * (Yold / Xs) / abs(Yold / Xs)
-		else:
-			Y = Xt * Freq0
-
-		Yold = Y
-		Yold[Yold == 0] = epsilon
-
-		time_stretch_signal[pp:pp+N] = np.add(time_stretch_signal[pp:pp+N], w*np.fft.ifft(Y), out=time_stretch_signal[pp:pp+N], casting="unsafe")
-
-		p = int(p+Ra)		# analysis hop
-		pp += Rs			# synthesis hop
-
-	time_stretch_signal = time_stretch_signal / wscale    
-	# retrieve input signal perfectly
-	#signal = np.delete(signal, range(2000))
-
-	time_stretch_signal = np.delete(time_stretch_signal, range(Rs))
-	time_stretch_signal = np.delete(time_stretch_signal, range(L0, time_stretch_signal.size))
-	#time_stretch_signal = np.delete(time_stretch_signal, range(len(time_stretch_signal)-int(alpha*len(w)),len(time_stretch_signal)))
-	
-	return time_stretch_signal
 
 def time_varying_pitch(signal, fs, intensity, rate):
-	N = int(rate*len(signal)/fs)
-	alpha_max = 1.1
-	overlap = 400
-	safety = 200
-	effective_window = 1000
-	length_window = effective_window + overlap + 2*safety
-	n = int(len(signal)/effective_window)
-	fade_in = np.linspace(0,1,overlap)
-	fade_out = np.linspace(1,0,overlap)
-	time_stretch_resample = []
-	window_resample = []
-	
-	for i in range(n):
-		alpha = 1 + intensity*np.sin(2*N*np.pi*i/n)
+    '''
+    Apply a time varying pitch on signal. 
+    Pitch is modulated by a sinusoidal of rate and intensity defined by user.
+    '''
+    
+    #Define parameters according to intensity and rate
+    N = int(rate*len(signal)/fs)					#Number of periods of the modulation sine
+    overlap = 400							#Overlap size for reconstruction
+    safety = 200							#Safety padding length to avoid artifacts at frame beginning
+    effective_window = 1000						#Effective frame length
+    length_window = effective_window + overlap + 2*safety		#Total frame length (i.e. with padding and overlap)
+    n = int(len(signal)/effective_window)				#Number of frames
+    fade_in = np.linspace(0,1,overlap)					#Triangle window
+    fade_out = np.linspace(1,0,overlap)					#Triangle window
+    time_stretch_resample = []						#Empty vector to fill with result
+    window_resample = []						#Empty vector to fill with current window result
+    delay = 2**6							#Delay applied on the result
+    
+    #Loop over frames
+    for i in range(n):
+        
+        #Evaluate current value of alpha
+        alpha = 1 + intensity*np.sin(2*N*np.pi*i/n)
+        
+        #Apply time stretch on window
+        low_index = i*effective_window
+        high_index = i*effective_window + length_window
+        time_stretched_window = time_stretch(signal[low_index:high_index],alpha)
 
-		low_index = i*effective_window
-		high_index = i*effective_window + length_window
-		
-		time_stretched_window = time_stretch(signal[low_index:high_index], alpha)
-		
-		# delete safety margins
-		time_stretched_window = np.delete(time_stretched_window,range(len(time_stretched_window)-int(safety*alpha),len(time_stretched_window)))
-		time_stretched_window = np.delete(time_stretched_window,range(0,int(safety*alpha)))
+        #Delete safety margins
+        time_stretched_window = np.delete(time_stretched_window,range(len(time_stretched_window)-int(safety*alpha),len(time_stretched_window)))
+        time_stretched_window = np.delete(time_stretched_window,range(0,int(safety*alpha)))
+            
+        
+        #Resample the time stretched audio to get pitch shift, and overlap them
+        window_resample = sp.signal.resample(time_stretched_window,effective_window+overlap)
+        if i==0:
+            time_stretch_resample = window_resample
+            #fade out
+            time_stretch_resample[effective_window:effective_window+overlap] *= fade_out
 
-		#pitch, #append, #overlap
-		window_resample = sp.signal.resample(time_stretched_window,effective_window+overlap)
-
-		if i==0:
-			time_stretch_resample = window_resample
-			#fade out
-			time_stretch_resample[effective_window:effective_window+overlap] *= fade_out
-			
-		if i>0:
-			# fade in - fade out
-			window_resample[0:overlap] *= fade_in
-			window_resample[effective_window:effective_window+overlap] *= fade_out
-			time_stretch_resample[len(time_stretch_resample)-overlap:len(time_stretch_resample)] += window_resample[0:overlap]
-			time_stretch_resample = np.append(time_stretch_resample, window_resample[overlap:])
-			#print(len(time_stretch_resample))
-			#time_stretch_signal = time_stretch(signal[int(np.floor((i)*len(signal)/n)) : int(np.floor((i+1)*len(signal)/n))],alpha)
-			### Here ###
-			#play(time_stretch_resample[int((i-1)*1.5)*len(window_resample):int(i*1.5)*len(window_resample)],fs)
-			### Here ###
-			#time_stretch_signal = signal[int(np.floor((i)*len(signal)/n)):int(np.floor((i+1)*len(signal)/n))]
-			#time_stretch_resample = np.append(time_stretch_resample, rescale(time_stretch_signal, 1/alpha))
-		
-     
-	time_stretch_resample = np.append(signal[0:safety-64],time_stretch_resample)
-		
-	return time_stretch_resample
-
+        if i>0:
+            # fade in - fade out
+            window_resample[0:overlap] *= fade_in
+            window_resample[effective_window:effective_window+overlap] *= fade_out
+            time_stretch_resample[len(time_stretch_resample)-overlap:len(time_stretch_resample)] += window_resample[0:overlap]
+            time_stretch_resample = np.append(time_stretch_resample,window_resample[overlap:])
+            
+    time_stretch_resample = np.append(signal[0:safety-delay],time_stretch_resample)
+    return time_stretch_resample
+    
 def chorus_effect(signal, fs, intensity1, intensity2, rate1, rate2, wet):
 
 	chorus_signal_1 = time_varying_pitch(signal, fs, intensity1, rate1)
