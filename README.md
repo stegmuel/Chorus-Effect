@@ -2,7 +2,8 @@
 In this repository we propose a Python implementation of the "Chorus Effect".
 
 The Jupyter notebook report can be found in the "Report" folder or using the following link :
- http://nbviewer.jupyter.org/github/stegmuel/Chorus-Effect/blob/master/Report/ChorusEffect_report.ipynb
+http://nbviewer.jupyter.org/github/stegmuel/Chorus-Effect/blob/master/Report/ChorusEffect_report.ipynb
+ 
 The application can be run from the "App" folder. 
 
 The following packages might need to be installed :
